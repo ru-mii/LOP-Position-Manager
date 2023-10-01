@@ -22,7 +22,7 @@ namespace LOP_Position_Manager
 
         // build version, adding new line because github adds it to their file
         // and the version is being compared with one written in github file in repo
-        public static string softwareVersion = "1" + "\n";
+        public static string softwareVersion = "2" + "\n";
 
         public static Process gameProcess = null;
         long processSession = 0;
@@ -37,6 +37,9 @@ namespace LOP_Position_Manager
 
         int hotkey_SavePosition = 0;
         int hotkey_LoadPosition = 0;
+
+        // steam, gamepass
+        string gameVersion = "";
 
         public int[] keyboardTableReady = new int[999];
 
@@ -87,9 +90,12 @@ namespace LOP_Position_Manager
                 bool foundProcess = false;
                 foreach (Process process in Process.GetProcesses())
                 {
-                    if (process.ProcessName == "LOP-Win64-Shipping" && process.MainWindowTitle == "Lies of P  ")
+                    if ((process.ProcessName == "LOP-Win64-Shipping" || process.ProcessName == "LOP-WinGDK-Shipping") && process.MainWindowTitle.Contains("Lies of P"))
                     //if (process.ProcessName == "LOP-Win64-Shipping")
                     {
+                        if (process.ProcessName == "LOP-Win64-Shipping") gameVersion = "steam";
+                        else gameVersion = "gamepass";
+
                         gameProcess = process;
                         foundProcess = true;
                     }
@@ -101,11 +107,23 @@ namespace LOP_Position_Manager
 
                     foreach (ProcessModule module in gameProcess.Modules)
                     {
-                        if (module.ModuleName.Equals("LOP-Win64-Shipping.exe", StringComparison.OrdinalIgnoreCase))
+                        if (gameVersion == "steam")
                         {
-                            mainModule = module.BaseAddress;
-                            sizeMainModule = (IntPtr)module.ModuleMemorySize;
-                            break;
+                            if (module.ModuleName.Equals("LOP-Win64-Shipping.exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                mainModule = module.BaseAddress;
+                                sizeMainModule = (IntPtr)module.ModuleMemorySize;
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (module.ModuleName.Equals("LOP-WinGDK-Shipping.exe", StringComparison.OrdinalIgnoreCase))
+                            {
+                                mainModule = module.BaseAddress;
+                                sizeMainModule = (IntPtr)module.ModuleMemorySize;
+                                break;
+                            }
                         }
                     }
 
@@ -144,7 +162,8 @@ namespace LOP_Position_Manager
                     }
 
                     // patch camera position
-                    if (true)
+                    // OLD FUNCTION, NOT TO USE
+                    if (false)
                     {
                         IntPtr function = Toolkit.SignatureScan("0F 11 86 C0 02 00 00 89 46 40 89 4E 44 89 46 78 89 4E 7C 4C",
                             gameProcess.Handle, -0x36, mainModule, (IntPtr)((long)mainModule + (long)sizeMainModule),
@@ -173,6 +192,39 @@ namespace LOP_Position_Manager
                         else
                         {
                             Toolkit.ShowError("scan M2RW7Q failed");
+                            Environment.Exit(0);
+                        }
+                    }
+
+                    if (true)
+                    {
+                        IntPtr function = Toolkit.SignatureScan("45 0F B6 C4 0F 28 CE 48 8B CE 0F 28 B4 24",
+                            gameProcess.Handle, -0x1B, mainModule, (IntPtr)((long)mainModule + (long)sizeMainModule),
+                            (int)AllocationProtectEnum.PAGE_EXECUTE_READ);
+
+                        if (function != IntPtr.Zero)
+                        {
+                            IntPtr allocated = Toolkit.AllocateMemory();
+
+                            byte[] s1 = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                            byte[] s2 = BitConverter.GetBytes((ulong)allocated);
+                            byte[] s3 = { 0x90 };
+                            byte[] start = Toolkit.MergeByteArrays(s1, s2, s3);
+
+                            byte[] e1 = { 0x48, 0x89, 0x35, 0xF9, 0x00, 0x00, 0x00 };
+                            byte[] e2 = { 0x4C, 0x8B, 0xB4, 0x24, 0x08, 0x01, 0x00, 0x00, 0x48, 0x8B, 0x06, 0x45, 0x0F, 0xB6, 0xC4 };
+                            byte[] e3 = { 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 };
+                            byte[] e4 = BitConverter.GetBytes((ulong)function + 15);
+                            byte[] exit = Toolkit.MergeByteArrays(e1, e2, e3, e4);
+
+                            Toolkit.WriteMemory(allocated, exit);
+                            Toolkit.WriteMemory(function, start);
+                            
+                            cameraPointer = allocated + 0x100;
+                        }
+                        else
+                        {
+                            Toolkit.ShowError("scan W3VU84 failed");
                             Environment.Exit(0);
                         }
                     }
